@@ -1,6 +1,8 @@
 streamlit
 feedparser
 newspaper3k
+lxml
+cssselect
 konlpy
 transformers
 sentence-transformers
