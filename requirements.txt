@@ -1,7 +1,7 @@
 streamlit
 feedparser
 newspaper3k
-lxml
+lxml==4.9.3
 cssselect
 konlpy
 transformers
