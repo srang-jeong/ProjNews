@@ -1,0 +1,10 @@
+streamlit
+feedparser
+newspaper3k
+konlpy
+transformers
+sentence-transformers
+wordcloud
+fpdf
+plotly
+beautifulsoup4
