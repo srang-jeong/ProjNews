@@ -63,9 +63,9 @@ def summarize(text, num_sent=3):
     top_idx = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:num_sent]
     return ". ".join([sentences[i] for i in sorted(top_idx)])
 
-# 🏷️ 한글 키워드 추출 (순수 파이썬, 불용어 포함)
-KOREAN_STOPWORDS = {'있다', '하다', '수', '등', '및', '에서', '으로', '이번', '관한', '하여',
-                   '대한', '관련', '한', '더', '있으며', '따라', '등의'}
+# 🏷️ 한글 키워드 추출 (정규식 + 불용어)
+KOREAN_STOPWORDS = {'있다', '하다', '수', '등', '및', '에서', '으로', '이번',
+                   '관한', '하여', '대한', '관련', '한', '더', '있으며', '따라', '등의'}
 
 def extract_keywords(text, n=5):
     words = re.findall(r"[가-힣]{2,}", text)
@@ -121,7 +121,7 @@ def generate_opinion(sentiment, tone):
     }.get(tone, "ℹ️ 정보 전달")
     return f"{senti_txt} + {tone_txt}의 뉴스입니다."
 
-# 📰 뉴스 본문 가져오기 (Pure Python: requests + bs4 + html5lib)
+# 📰 뉴스 본문 가져오기 (requests + BeautifulSoup + html5lib)
 def get_article_text(url, lang="ko"):
     try:
         headers = {
@@ -129,11 +129,10 @@ def get_article_text(url, lang="ko"):
         }
         resp = requests.get(url, headers=headers, timeout=5)
         resp.encoding = resp.apparent_encoding
-        if resp.status_code != 200: return ""
+        if resp.status_code != 200:
+            return ""
         soup = BeautifulSoup(resp.text, "html5lib")
 
-        # 대표 언론사 주요 본문 영역 시도
-        body = ""
         selectors = [
             ("div", {"id": "newsct_article"}),
             ("div", {"id": "dic_area"}),
@@ -143,6 +142,7 @@ def get_article_text(url, lang="ko"):
             ("div", {"class": "article-content"}),
             ("div", {"class": "content"}),
         ]
+        body = ""
         for tag, attr in selectors:
             el = soup.find(tag, attrs=attr)
             if el:
@@ -197,7 +197,7 @@ def fetch_news(keyword, lang="ko", max_items=5):
             continue
     return pd.DataFrame(articles)
 
-# 🚀 뉴스 데이터 수집 및 필터링
+# 🚀 뉴스 데이터 수집 및 날짜 필터링
 lang_code = "ko" if lang_option == "한국어" else "en"
 df_list = [fetch_news(k, lang=lang_code, max_items=max_items) for k in selected_keywords]
 news_df = pd.concat(df_list).drop_duplicates(subset=["링크"]) if df_list else pd.DataFrame()
@@ -209,7 +209,7 @@ if not news_df.empty:
     if end_date:
         news_df = news_df[news_df["날짜"] <= pd.to_datetime(end_date)]
 
-# 🗂️ 탭 UI
+# 🗂️ UI 탭
 tab1, tab2, tab3 = st.tabs(["📰 뉴스 목록", "📊 통계·워드클라우드", "📁 북마크/PDF"])
 
 # 📰 탭1: 뉴스 목록
