@@ -1,9 +1,9 @@
 streamlit
 pandas
 feedparser
+requests
 beautifulsoup4
 html5lib
-konlpy
 sentence-transformers
 transformers
 wordcloud
@@ -11,4 +11,3 @@ matplotlib
 plotly
 fpdf
 nltk
-requests
