@@ -3,7 +3,6 @@ import pandas as pd
 import requests
 from urllib.parse import quote
 from bs4 import BeautifulSoup
-from konlpy.tag import Okt
 from sentence_transformers import SentenceTransformer, util
 from transformers import pipeline
 from wordcloud import WordCloud
@@ -12,7 +11,8 @@ import plotly.express as px
 from datetime import datetime
 from io import BytesIO
 from fpdf import FPDF
-
+from collections import Counter
+import re
 import nltk
 nltk.download('punkt')
 
@@ -21,10 +21,9 @@ nltk.download('punkt')
 def load_models():
     summarizer = SentenceTransformer("jhgan/ko-sroberta-multitask")
     sentiment_ko = pipeline("sentiment-analysis", model="nlptown/bert-base-multilingual-uncased-sentiment")
-    okt = Okt()
-    return summarizer, sentiment_ko, okt
+    return summarizer, sentiment_ko
 
-summarizer, sentiment_ko, okt = load_models()
+summarizer, sentiment_ko = load_models()
 
 # 📋 이모지 매핑
 SENTI_EMOJI = {"긍정": "🟢", "부정": "🔴", "중립": "🟡"}
@@ -63,11 +62,15 @@ def summarize(text, num_sent=3):
     top_idx = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:num_sent]
     return ". ".join([sentences[i] for i in sorted(top_idx)])
 
-# 🏷️ 키워드 추출
+# 🏷️ 한글 키워드 추출 (순수 파이썬)
+KOREAN_STOPWORDS = {'있다', '하다', '수', '등', '및', '에서', '으로', '이번', '관한', '하여', 
+                   '대한', '관련', '한', '더', '있으며', '따라', '등의'}
 def extract_keywords(text, n=5):
-    nouns = [w for w in okt.nouns(text) if len(w) > 1]
-    freq = pd.Series(nouns).value_counts()
-    return ", ".join(freq.head(n).index) if not freq.empty else "키워드 없음"
+    # 한글 2자 이상만 추출, 불용어는 제외
+    words = re.findall(r"[가-힣]{2,}", text)
+    words = [w for w in words if w not in KOREAN_STOPWORDS]
+    freq = Counter(words)
+    return ", ".join([w for w, _ in freq.most_common(n)]) if freq else "키워드 없음"
 
 # 😶 감성 분석
 def get_sentiment(text):
@@ -117,39 +120,42 @@ def generate_opinion(sentiment, tone):
     }.get(tone, "ℹ️ 정보 전달")
     return f"{senti_txt} + {tone_txt}의 뉴스입니다."
 
-# 📰 뉴스 본문 가져오기 (BeautifulSoup + requests)
+# 📰 뉴스 본문 가져오기 (Pure Python: requests + bs4)
 def get_article_text(url, lang="ko"):
     try:
-        # User-Agent 우회
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         }
         resp = requests.get(url, headers=headers, timeout=5)
         resp.encoding = resp.apparent_encoding
         if resp.status_code != 200: return ""
         soup = BeautifulSoup(resp.text, "html5lib")
-        # 뉴스 본문 추출 일반화(대표 언론사 class 조합)
+        # 대표 언론사 별 주요 본문 추출
         body = ""
-        # 국내 주요 언론사 class/id 우선 시도
-        for tag in [["div", "id", "newsct_article"], ["div", "id", "dic_area"], ["div", "class", "article_body"], ["div", "class", "newsEndContents"], ["div", "class", "art_body"], ["div","class","article-content"], ["div","class","content"]]:
+        for tag in [
+            ["div", "id", "newsct_article"], ["div", "id", "dic_area"],
+            ["div", "class", "article_body"], ["div", "class", "newsEndContents"],
+            ["div", "class", "art_body"], ["div","class","article-content"],
+            ["div","class","content"]
+        ]:
             el = soup.find(tag[0], attrs={tag[1]: tag[2]})
             if el:
                 body = el.get_text(separator=" ", strip=True)
                 break
-        if not body:  # fallback: <article> 전체
+        if not body:  # fallback: <article>
             art = soup.find("article")
-            if art: body = art.get_text(separator=" ", strip=True)
-        if not body:  # 그 외: 본문 추정
+            if art:
+                body = art.get_text(separator=" ", strip=True)
+        if not body:
             p_tags = soup.find_all("p")
             body = " ".join([p.get_text(separator=" ", strip=True) for p in p_tags])
-        # 너무 짧으면 그냥 <body> 전체
         if len(body) < 50:
             body = soup.get_text(separator=" ", strip=True)
-        # 특수문자/공백 정리
         return " ".join(body.split())
     except Exception as e:
         return ""
 
+import feedparser
 # 🌐 뉴스 크롤링
 @st.cache_data(show_spinner=True)
 def fetch_news(keyword, lang="ko", max_items=5):
@@ -248,8 +254,8 @@ with tab2:
             st.markdown("#### ☁️ 워드클라우드")
             all_kws = ", ".join(news_df["키워드추출"].dropna())
             try:
-                font_path = "C:/Windows/Fonts/malgun.ttf"
-                wc = WordCloud(font_path=font_path, width=400, height=300, background_color='white').generate(all_kws)
+                # 서버에서는 나눔폰트 등 사용할 수도 있습니다. 필요시 변경!
+                wc = WordCloud(width=400, height=300, background_color='white', font_path=None).generate(all_kws)
                 fig, ax = plt.subplots()
                 ax.imshow(wc, interpolation='bilinear')
                 ax.axis("off")
@@ -269,9 +275,8 @@ with tab3:
         if st.button("⬇️ PDF 다운로드"):
             pdf = FPDF()
             pdf.add_page()
-            font_path = "C:/Windows/Fonts/malgun.ttf"
-            pdf.add_font('Malgun', '', font_path, uni=True)
-            pdf.set_font('Malgun', '', 12)
+            # 폰트 경로는 환경에 맞게
+            pdf.set_font('Arial', '', 12)
             pdf.cell(200, 10, "⭐ 북마크 뉴스 요약", 0, 1, 'C')
             for _, row in bm_df.iterrows():
                 entry = (
