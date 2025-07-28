@@ -14,6 +14,7 @@ from fpdf import FPDF
 from collections import Counter
 import re
 import nltk
+
 nltk.download('punkt')
 
 # 🛠️ 모델 로딩
@@ -62,11 +63,11 @@ def summarize(text, num_sent=3):
     top_idx = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:num_sent]
     return ". ".join([sentences[i] for i in sorted(top_idx)])
 
-# 🏷️ 한글 키워드 추출 (순수 파이썬)
-KOREAN_STOPWORDS = {'있다', '하다', '수', '등', '및', '에서', '으로', '이번', '관한', '하여', 
+# 🏷️ 한글 키워드 추출 (순수 파이썬, 불용어 포함)
+KOREAN_STOPWORDS = {'있다', '하다', '수', '등', '및', '에서', '으로', '이번', '관한', '하여',
                    '대한', '관련', '한', '더', '있으며', '따라', '등의'}
+
 def extract_keywords(text, n=5):
-    # 한글 2자 이상만 추출, 불용어는 제외
     words = re.findall(r"[가-힣]{2,}", text)
     words = [w for w in words if w not in KOREAN_STOPWORDS]
     freq = Counter(words)
@@ -120,7 +121,7 @@ def generate_opinion(sentiment, tone):
     }.get(tone, "ℹ️ 정보 전달")
     return f"{senti_txt} + {tone_txt}의 뉴스입니다."
 
-# 📰 뉴스 본문 가져오기 (Pure Python: requests + bs4)
+# 📰 뉴스 본문 가져오기 (Pure Python: requests + bs4 + html5lib)
 def get_article_text(url, lang="ko"):
     try:
         headers = {
@@ -130,19 +131,24 @@ def get_article_text(url, lang="ko"):
         resp.encoding = resp.apparent_encoding
         if resp.status_code != 200: return ""
         soup = BeautifulSoup(resp.text, "html5lib")
-        # 대표 언론사 별 주요 본문 추출
+
+        # 대표 언론사 주요 본문 영역 시도
         body = ""
-        for tag in [
-            ["div", "id", "newsct_article"], ["div", "id", "dic_area"],
-            ["div", "class", "article_body"], ["div", "class", "newsEndContents"],
-            ["div", "class", "art_body"], ["div","class","article-content"],
-            ["div","class","content"]
-        ]:
-            el = soup.find(tag[0], attrs={tag[1]: tag[2]})
+        selectors = [
+            ("div", {"id": "newsct_article"}),
+            ("div", {"id": "dic_area"}),
+            ("div", {"class": "article_body"}),
+            ("div", {"class": "newsEndContents"}),
+            ("div", {"class": "art_body"}),
+            ("div", {"class": "article-content"}),
+            ("div", {"class": "content"}),
+        ]
+        for tag, attr in selectors:
+            el = soup.find(tag, attrs=attr)
             if el:
                 body = el.get_text(separator=" ", strip=True)
                 break
-        if not body:  # fallback: <article>
+        if not body:
             art = soup.find("article")
             if art:
                 body = art.get_text(separator=" ", strip=True)
@@ -152,7 +158,7 @@ def get_article_text(url, lang="ko"):
         if len(body) < 50:
             body = soup.get_text(separator=" ", strip=True)
         return " ".join(body.split())
-    except Exception as e:
+    except Exception:
         return ""
 
 import feedparser
@@ -187,16 +193,15 @@ def fetch_news(keyword, lang="ko", max_items=5):
                 "본문": fulltext, "요약": summary, "키워드추출": keywords,
                 "감성": sentiment, "콘텐츠톤": tone, "태그": tags, "한줄평": opinion
             })
-        except Exception as e:
+        except Exception:
             continue
     return pd.DataFrame(articles)
 
-# 🚀 뉴스 데이터 수집
+# 🚀 뉴스 데이터 수집 및 필터링
 lang_code = "ko" if lang_option == "한국어" else "en"
 df_list = [fetch_news(k, lang=lang_code, max_items=max_items) for k in selected_keywords]
 news_df = pd.concat(df_list).drop_duplicates(subset=["링크"]) if df_list else pd.DataFrame()
 
-# 🕒 날짜 필터
 if not news_df.empty:
     news_df["날짜"] = pd.to_datetime(news_df["날짜"], errors="coerce")
     if start_date:
@@ -204,7 +209,7 @@ if not news_df.empty:
     if end_date:
         news_df = news_df[news_df["날짜"] <= pd.to_datetime(end_date)]
 
-# 🗂️ 탭 구성
+# 🗂️ 탭 UI
 tab1, tab2, tab3 = st.tabs(["📰 뉴스 목록", "📊 통계·워드클라우드", "📁 북마크/PDF"])
 
 # 📰 탭1: 뉴스 목록
@@ -254,13 +259,12 @@ with tab2:
             st.markdown("#### ☁️ 워드클라우드")
             all_kws = ", ".join(news_df["키워드추출"].dropna())
             try:
-                # 서버에서는 나눔폰트 등 사용할 수도 있습니다. 필요시 변경!
                 wc = WordCloud(width=400, height=300, background_color='white', font_path=None).generate(all_kws)
                 fig, ax = plt.subplots()
                 ax.imshow(wc, interpolation='bilinear')
                 ax.axis("off")
                 st.pyplot(fig)
-            except:
+            except Exception:
                 st.warning("⚠️ 워드클라우드 생성 실패. 폰트 경로를 확인해주세요.")
     else:
         st.info("시각화할 데이터가 없습니다.")
@@ -271,11 +275,13 @@ with tab3:
     bm_df = news_df[news_df["링크"].isin(st.session_state.get("bookmarks", []))]
     if not bm_df.empty:
         for _, row in bm_df.iterrows():
-            st.markdown(f"- {SENTI_EMOJI.get(row['감성'],'🟡')}{TONE_EMOJI.get(row['콘텐츠톤'],'ℹ️')} [{row['제목']}]({row['링크']})")
+            st.markdown(
+                f"- {SENTI_EMOJI.get(row['감성'],'🟡')}{TONE_EMOJI.get(row['콘텐츠톤'],'ℹ️')} "
+                f"[{row['제목']}]({row['링크']})"
+            )
         if st.button("⬇️ PDF 다운로드"):
             pdf = FPDF()
             pdf.add_page()
-            # 폰트 경로는 환경에 맞게
             pdf.set_font('Arial', '', 12)
             pdf.cell(200, 10, "⭐ 북마크 뉴스 요약", 0, 1, 'C')
             for _, row in bm_df.iterrows():
@@ -287,7 +293,7 @@ with tab3:
                     f"키워드: {row['키워드추출']}\n"
                     f"태그: {row['태그']}\n"
                     f"링크: {row['링크']}\n"
-                    + "-"*40 + "\n"
+                    + "-" * 40 + "\n"
                 )
                 pdf.multi_cell(0, 10, entry)
             temp = BytesIO()
