@@ -200,7 +200,17 @@ def fetch_news(keyword, lang="ko", max_items=5):
 # 🚀 뉴스 데이터 수집 및 날짜 필터링
 lang_code = "ko" if lang_option == "한국어" else "en"
 df_list = [fetch_news(k, lang=lang_code, max_items=max_items) for k in selected_keywords]
-news_df = pd.concat(df_list).drop_duplicates(subset=["링크"]) if df_list else pd.DataFrame()
+
+# 빈 데이터프레임 필터링 (빈 df 제거)
+df_list = [df for df in df_list if not df.empty]
+
+if df_list:
+    news_df = pd.concat(df_list).drop_duplicates(subset=["링크"])
+else:
+    news_df = pd.DataFrame(columns=[
+        "키워드", "제목", "링크", "날짜", "본문", "요약", "키워드추출",
+        "감성", "콘텐츠톤", "태그", "한줄평"
+    ])
 
 if not news_df.empty:
     news_df["날짜"] = pd.to_datetime(news_df["날짜"], errors="coerce")
@@ -272,7 +282,10 @@ with tab2:
 # 📁 탭3: 북마크 & PDF
 with tab3:
     st.subheader("📁 북마크 및 PDF 저장")
-    bm_df = news_df[news_df["링크"].isin(st.session_state.get("bookmarks", []))]
+    if "링크" in news_df.columns:
+        bm_df = news_df[news_df["링크"].isin(st.session_state.get("bookmarks", []))]
+    else:
+        bm_df = pd.DataFrame()
     if not bm_df.empty:
         for _, row in bm_df.iterrows():
             st.markdown(
