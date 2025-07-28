@@ -17,7 +17,6 @@ import nltk
 
 nltk.download('punkt')
 
-# 🛠️ 모델 로딩
 @st.cache_resource
 def load_models():
     summarizer = SentenceTransformer("jhgan/ko-sroberta-multitask")
@@ -25,16 +24,12 @@ def load_models():
     return summarizer, sentiment_ko
 
 summarizer, sentiment_ko = load_models()
-
-# 📋 이모지 매핑
 SENTI_EMOJI = {"긍정": "🟢", "부정": "🔴", "중립": "🟡"}
 TONE_EMOJI = {"정보성": "ℹ️", "감정적": "💬", "분석적": "🧐"}
 
-# 🌍 페이지 설정
 st.set_page_config(page_title="🧠 AI 뉴스 요약 대시보드", layout="wide")
 st.title("📰 AI/로봇 뉴스 요약 대시보드")
 
-# 🎛️ 사이드바 입력
 st.sidebar.header("🔎 뉴스 수집 조건")
 KEYWORDS = ["AI", "로봇", "로봇감정", "로봇성격", "IT", "산업데이터", "데이터시스템"]
 selected_keywords = st.sidebar.multiselect("💡 키워드 선택", KEYWORDS, default=KEYWORDS)
@@ -46,11 +41,9 @@ max_items = st.sidebar.slider("📰 키워드별 뉴스 수", 1, 15, 5)
 start_date = st.sidebar.date_input("📅 시작일", None)
 end_date = st.sidebar.date_input("📅 종료일", None)
 
-# 📑 뉴스 본문 정제
 def clean_text(html):
     return BeautifulSoup(html, "html.parser").get_text(separator=" ").strip()
 
-# ✂️ 임베딩 기반 요약
 def summarize(text, num_sent=3):
     if not text or len(text.strip()) < 30:
         return "요약 불가 (본문 부족)"
@@ -63,17 +56,14 @@ def summarize(text, num_sent=3):
     top_idx = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:num_sent]
     return ". ".join([sentences[i] for i in sorted(top_idx)])
 
-# 🏷️ 한글 키워드 추출 (정규식 + 불용어)
 KOREAN_STOPWORDS = {'있다', '하다', '수', '등', '및', '에서', '으로', '이번',
                    '관한', '하여', '대한', '관련', '한', '더', '있으며', '따라', '등의'}
-
 def extract_keywords(text, n=5):
     words = re.findall(r"[가-힣]{2,}", text)
     words = [w for w in words if w not in KOREAN_STOPWORDS]
     freq = Counter(words)
     return ", ".join([w for w, _ in freq.most_common(n)]) if freq else "키워드 없음"
 
-# 😶 감성 분석
 def get_sentiment(text):
     try:
         result = sentiment_ko(text[:512])
@@ -87,7 +77,6 @@ def get_sentiment(text):
     except:
         return "중립"
 
-# 🧐 콘텐츠 톤 분석
 def analyze_tone(text):
     if len(text) > 1000 and any(word in text for word in ["우려", "논란", "환영", "논의", "과제"]):
         return "분석적"
@@ -96,7 +85,6 @@ def analyze_tone(text):
     else:
         return "정보성"
 
-# 🏷️ 태그 생성
 def generate_tags(text):
     tags = []
     if "기술" in text:
@@ -107,7 +95,6 @@ def generate_tags(text):
         tags.append("#이슈")
     return " ".join(tags) if tags else "#일반"
 
-# 💡 한줄평 생성 (이모지 포함)
 def generate_opinion(sentiment, tone):
     senti_txt = {
         "긍정": "🟢 긍정적인 관점",
@@ -121,7 +108,6 @@ def generate_opinion(sentiment, tone):
     }.get(tone, "ℹ️ 정보 전달")
     return f"{senti_txt} + {tone_txt}의 뉴스입니다."
 
-# 📰 뉴스 본문 가져오기 (requests + BeautifulSoup + html5lib)
 def get_article_text(url, lang="ko"):
     try:
         headers = {
@@ -132,7 +118,6 @@ def get_article_text(url, lang="ko"):
         if resp.status_code != 200:
             return ""
         soup = BeautifulSoup(resp.text, "html5lib")
-
         selectors = [
             ("div", {"id": "newsct_article"}),
             ("div", {"id": "dic_area"}),
@@ -162,7 +147,6 @@ def get_article_text(url, lang="ko"):
         return ""
 
 import feedparser
-# 🌐 뉴스 크롤링
 @st.cache_data(show_spinner=True)
 def fetch_news(keyword, lang="ko", max_items=5):
     q = quote(keyword)
@@ -197,13 +181,9 @@ def fetch_news(keyword, lang="ko", max_items=5):
             continue
     return pd.DataFrame(articles)
 
-# 🚀 뉴스 데이터 수집 및 날짜 필터링
 lang_code = "ko" if lang_option == "한국어" else "en"
 df_list = [fetch_news(k, lang=lang_code, max_items=max_items) for k in selected_keywords]
-
-# 빈 데이터프레임 필터링 (빈 df 제거)
 df_list = [df for df in df_list if not df.empty]
-
 if df_list:
     news_df = pd.concat(df_list).drop_duplicates(subset=["링크"])
 else:
@@ -219,10 +199,8 @@ if not news_df.empty:
     if end_date:
         news_df = news_df[news_df["날짜"] <= pd.to_datetime(end_date)]
 
-# 🗂️ UI 탭
 tab1, tab2, tab3 = st.tabs(["📰 뉴스 목록", "📊 통계·워드클라우드", "📁 북마크/PDF"])
 
-# 📰 탭1: 뉴스 목록
 with tab1:
     st.subheader("📰 최신 뉴스 목록")
     if not news_df.empty:
@@ -231,9 +209,7 @@ with tab1:
         for i, row in news_df.iterrows():
             senti_emo = SENTI_EMOJI.get(row["감성"], "🟡")
             tone_emo = TONE_EMOJI.get(row["콘텐츠톤"], "ℹ️")
-            st.markdown(
-                f"### {senti_emo}{tone_emo} [{row['제목']}]({row['링크']})"
-            )
+            st.markdown(f"### {senti_emo}{tone_emo} [{row['제목']}]({row['링크']})")
             st.caption(
                 f"📅 {row['날짜'].date()} | {senti_emo} 감성: `{row['감성']}` | {tone_emo} 톤: `{row['콘텐츠톤']}` | {row['태그']}"
             )
@@ -247,7 +223,6 @@ with tab1:
     else:
         st.info("뉴스 데이터가 없습니다.")
 
-# 📊 탭2: 통계 및 워드클라우드
 with tab2:
     st.subheader("📊 뉴스 통계 및 워드클라우드")
     if not news_df.empty:
@@ -255,16 +230,13 @@ with tab2:
         with col1:
             st.markdown("#### 🔢 키워드별 뉴스 수")
             st.bar_chart(news_df["키워드"].value_counts())
-
             st.markdown("#### 😶 감성 분포")
             senti_bar = news_df["감성"].value_counts().rename_axis('감성').reset_index(name='건수')
             senti_bar["이모지"] = senti_bar["감성"].map(SENTI_EMOJI)
             st.dataframe(senti_bar, hide_index=True)
             st.bar_chart(news_df["감성"].value_counts())
-
             st.markdown("#### 🧐 콘텐츠 톤 분포")
             st.plotly_chart(px.histogram(news_df, x="키워드", color="콘텐츠톤", barmode="group"))
-
         with col2:
             st.markdown("#### ☁️ 워드클라우드")
             all_kws = ", ".join(news_df["키워드추출"].dropna())
@@ -279,13 +251,13 @@ with tab2:
     else:
         st.info("시각화할 데이터가 없습니다.")
 
-# 📁 탭3: 북마크 & PDF
 with tab3:
     st.subheader("📁 북마크 및 PDF 저장")
-    if "링크" in news_df.columns:
+    # KeyError('링크') 완벽 방지
+    if "링크" in news_df.columns and not news_df.empty:
         bm_df = news_df[news_df["링크"].isin(st.session_state.get("bookmarks", []))]
     else:
-        bm_df = pd.DataFrame()
+        bm_df = pd.DataFrame(columns=news_df.columns if hasattr(news_df, "columns") else [])
     if not bm_df.empty:
         for _, row in bm_df.iterrows():
             st.markdown(
