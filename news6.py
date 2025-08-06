@@ -15,7 +15,11 @@ from collections import Counter
 import re
 import nltk
 
-nltk.download('punkt')
+# NLTK 데이터 다운로드 (한 번만 실행되도록 예외 처리)
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt', quiet=True)
 
 @st.cache_resource
 def load_models():
